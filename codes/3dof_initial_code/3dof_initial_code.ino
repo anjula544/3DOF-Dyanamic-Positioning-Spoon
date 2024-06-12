@@ -1,9 +1,9 @@
-#include <ESP32_Servo.h>
-
-//#include <Servo.h>
+//#include <ESP32_Servo.h>
+#include <Servo.h>
 #include <PID_v1_bc.h>
 #include <Kalman.h>
 #include <Wire.h>
+#include <MPU6050.h>
 
 #define RESTRICT_PITCH 
 Kalman kalmanX; // Create the Kalman instances
@@ -37,16 +37,16 @@ PID PIDY(&InputY, &OutputY, &SetpointY, KpY, KiY, KdY, DIRECT);
 
 // PID data Z
 double SetpointZ, InputZ, OutputZ;
-double KpZ = 1.2, KiZ = 0, KdZ = 0;
+double KpZ = 2, KiZ = 0, KdZ = 0;
 PID PIDZ(&InputZ, &OutputZ, &SetpointZ, KpZ, KiZ, KdZ, DIRECT);
 
 // TODO: Make calibration routine
 
 void setup() {
-  Serial.begin(115200);
+  Serial.begin(9600);
   Wire.begin();
-  servo1.attach(8);
-  servo2.attach(9);
+  servo1.attach(9);
+  servo2.attach(8);
   servo3.attach(10);
 
 #if ARDUINO >= 157
@@ -61,7 +61,6 @@ void setup() {
   i2cData[3] = 0x00; // Set Accelerometer Full Scale Range to 2g
   while (i2cWrite(0x19, i2cData, 4, false)); // Write to all four registers at once
   while (i2cWrite(0x6B, 0x01, true)); // PLL with X axis gyroscope reference and disable sleep mode
-
   while (i2cRead(0x75, i2cData, 1));
   if (i2cData[0] != 0x68) { // Read "WHO_AM_I" register
     Serial.print(F("Error reading sensor"));
@@ -101,7 +100,7 @@ void setup() {
   // The desired value
   SetpointX = 90;
   SetpointY = 90;
-  SetpointZ = 70;
+  SetpointZ = 90;
 
   servo1.write(0);
   servo2.write(0);
@@ -123,11 +122,11 @@ void loop() {
   // The desired value
   SetpointX = 90;
   SetpointY = 90;
-  SetpointZ = 70;
+  SetpointZ = 90;
 
   InputX = kalAngleX;
   InputY = kalAngleY;
-  InputZ = kalAngleZ;
+  InputZ = -gyroZangle ;
 
   if (InputX < -90.0) {
     InputX = -90.0;
@@ -136,15 +135,15 @@ void loop() {
   }
 
   if (InputY < -90.0) {
-    InputY = -70.0;
+    InputY = -90.0;
   } else if (InputY > 90.0) {
-    InputY = 70.0;
+    InputY = 90.0;
   }
 
   if (InputZ < -90.0) {
-    InputZ = -70.0;
+    InputZ = -90.0;
   } else if (InputZ > 90.0) {
-    InputZ = 70.0;
+    InputZ = 90.0;
   }
 
   // Compute the Output
@@ -156,13 +155,13 @@ void loop() {
   servo2.write(OutputX);
   servo3.write(OutputZ);
 
-  Serial.print("s1: ");
+  /*Serial.print("s1: ");
   Serial.print(OutputX);
   Serial.print("  s2");
   Serial.print(OutputY);
   Serial.print("  s3");
   Serial.print(OutputZ);
-  Serial.print("\t");
+  Serial.print("\t");*/
 
 
 
@@ -177,6 +176,16 @@ void loop() {
 
   // Send sensor data over serial
   //Serial.println(data);
+  //delay(1000);
+
+
+
+ // Serial.println(gyroZangle);  // Print gyroZangle
+  /*Serial.print("\t");        // Print tab
+  Serial.print(gyroZ);       // Print gyroZ
+  Serial.print("\t");        // Print tab
+  Serial.println(OutputZ);   // Print OutputZ and move to the next line
+*/
 }
 
 void mpuKalman() {
@@ -203,6 +212,8 @@ void mpuKalman() {
   double yaw = atan(accZ / sqrt(accX * accX + accZ * accZ)) * RAD_TO_DEG;
 #endif
 
+  //Serial.println(gyroZangle);
+
   double gyroXrate = gyroX / 131.0; // Convert to deg/s
   double gyroYrate = gyroY / 131.0; // Convert to deg/s
   double gyroZrate = gyroZ / 131.0; // Convert to deg/s
@@ -218,7 +229,7 @@ void mpuKalman() {
   if (abs(kalAngleX) > 90)
     gyroYrate = -gyroYrate; // Invert rate, so it fits the restricted accelerometer reading
   kalAngleY = kalmanY.getAngle(pitch, gyroYrate, dt);
-  kalAngleZ = kalmanZ.getAngle(yaw, gyroZrate, dt);
+  //kalAngleZ = kalmanZ.getAngle(yaw, gyroZrate, dt);
 #else
   if ((pitch < -90 && kalAngleY > 90) || (pitch > 90 && kalAngleY < -90)) {
     kalmanY.setAngle(pitch);
@@ -230,23 +241,34 @@ void mpuKalman() {
   if (abs(kalAngleY) > 90)
     gyroXrate = -gyroXrate; // Invert rate, so it fits the restricted accelerometer reading
   kalAngleX = kalmanX.getAngle(roll, gyroXrate, dt);
-  kalAngleZ = kalmanZ.getAngle(yaw, gyroZrate, dt);
+  //kalAngleZ = kalmanZ.getAngle(yaw, gyroZrate, dt);
 #endif
 
+
+
+  //kalAngleZ = kalmanZ.getAngle(yaw, gyroZrate, dt);
   // Reset the gyro angle when it has drifted too much
   if (gyroXangle < -180 || gyroXangle > 180)
     gyroXangle = kalAngleX;
   if (gyroYangle < -180 || gyroYangle > 180)
     gyroYangle = kalAngleY;
-  if (gyroZangle < -180 || gyroZangle > 180)
-    gyroZangle = kalAngleZ;
+  /*if (gyroZangle < -180 || gyroZangle > 180)
+    gyroZangle = kalAngleZ;*/
 
   gyroXangle += gyroXrate * dt; // Calculate gyro angle without any filter
   gyroYangle += gyroYrate * dt;
   gyroZangle += gyroZrate * dt;
+
+  String data1= "Roll:"+String(roll);
+  //data1 += "Pitch:"+String(pitch) + ",";
+
+  Serial.println(data1);
+  delay(2000);
+
+  
   // compAngleX = 0.93 * (compAngleX + gyroXrate * dt) + 0.07 * roll; // Calculate the angle using a Complimentary filter
   // compAngleY = 0.93 * (compAngleY + gyroYrate * dt) + 0.07 * pitch;
-  // compAngleZ = 0.93 * (compAngleZ + gyroZrate * dt) + 0.07 * yaw;
+  //compAngleZ = 0.93 * (compAngleZ + gyroZrate * dt) + 0.07 * yaw;
 
   // Print Data
   /*Serial.print("X: ");
